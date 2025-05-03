@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useStore } from '@/contexts/StoreContext';
 import Navbar from '@/components/Navbar';
@@ -18,11 +18,48 @@ export const LoginPage = () => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     login(email, password);
+    
+    // Show a success message when login succeeds
+    if (!state.error) {
+      const isAdmin = email === 'admin@example.com';
+      toast.success(`Login successful! ${isAdmin ? 'Welcome, Admin' : 'Welcome back'}`);
+      
+      // Redirect admin users to admin page
+      if (isAdmin) {
+        setTimeout(() => navigate('/admin'), 500);
+      }
+    }
+  };
+  
+  // Quick login buttons for demo
+  const handleQuickLogin = (userType: 'admin' | 'user') => {
+    const email = userType === 'admin' ? 'admin@example.com' : 'user@example.com';
+    setEmail(email);
+    login(email, '');
+    
+    toast.success(`Demo ${userType} login successful!`);
+    
+    // Redirect admin to admin page, user to products
+    if (userType === 'admin') {
+      setTimeout(() => navigate('/admin'), 500);
+    } else {
+      setTimeout(() => navigate('/'), 500);
+    }
   };
   
   // Redirect if already logged in
+  useEffect(() => {
+    if (state.currentUser) {
+      // Redirect admin to admin dashboard, others to home
+      if (state.currentUser.isAdmin) {
+        navigate('/admin');
+      } else {
+        navigate('/');
+      }
+    }
+  }, [state.currentUser, navigate]);
+  
   if (state.currentUser) {
-    navigate('/');
     return null;
   }
   
@@ -85,11 +122,27 @@ export const LoginPage = () => {
             </p>
           </div>
           
-          {/* Demo account information */}
+          {/* Demo account buttons for quick access */}
           <div className="mt-8 p-4 bg-blue-50 rounded-md">
-            <h3 className="text-sm font-semibold text-blue-800 mb-2">Demo Accounts</h3>
-            <p className="text-xs text-blue-700 mb-1">Admin: admin@example.com</p>
-            <p className="text-xs text-blue-700">Customer: user@example.com</p>
+            <h3 className="text-sm font-semibold text-blue-800 mb-2">Quick Demo Login</h3>
+            <div className="grid grid-cols-2 gap-2">
+              <Button 
+                variant="outline" 
+                size="sm"
+                className="bg-blue-100 border-blue-200 hover:bg-blue-200"
+                onClick={() => handleQuickLogin('admin')}
+              >
+                Login as Admin
+              </Button>
+              <Button 
+                variant="outline" 
+                size="sm"
+                className="bg-blue-100 border-blue-200 hover:bg-blue-200"
+                onClick={() => handleQuickLogin('user')}
+              >
+                Login as Customer
+              </Button>
+            </div>
             <p className="text-xs text-gray-500 mt-2">No password required for demo</p>
           </div>
         </div>
