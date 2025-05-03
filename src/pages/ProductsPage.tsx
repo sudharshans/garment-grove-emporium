@@ -14,7 +14,7 @@ const ProductsPage = () => {
   const { getProductsByCategory } = useStore();
   const [filteredProducts, setFilteredProducts] = useState(getProductsByCategory(category || 'all'));
   const [searchQuery, setSearchQuery] = useState('');
-  const [sortOption, setSortOption] = useState('');
+  const [sortOption, setSortOption] = useState('default');
   
   // Update products when category changes
   useEffect(() => {
@@ -85,7 +85,7 @@ const ProductsPage = () => {
                   <SelectValue placeholder="Sort by" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Default</SelectItem>
+                  <SelectItem value="default">Default</SelectItem>
                   <SelectItem value="price-low">Price: Low to High</SelectItem>
                   <SelectItem value="price-high">Price: High to Low</SelectItem>
                   <SelectItem value="name">Name</SelectItem>
