@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useReducer, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import { toast } from 'sonner';
 
 // Supabase client setup
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -233,37 +234,18 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const { data: { session } } = await supabase.auth.getSession();
       
       if (session) {
-        // Get user profile from database
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', session.user.id)
-          .single();
-        
-        if (profile) {
-          const user: User = {
-            id: session.user.id,
-            email: session.user.email || '',
-            name: profile.name || 'User',
-            isAdmin: profile.is_admin || false
-          };
-          dispatch({ type: 'SET_USER', payload: user });
-        }
-      }
-    };
-    
-    checkSession();
-    
-    // Setup auth state listener
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (event === 'SIGNED_IN' && session) {
+        try {
           // Get user profile from database
-          const { data: profile } = await supabase
+          const { data: profile, error } = await supabase
             .from('profiles')
             .select('*')
             .eq('id', session.user.id)
             .single();
+          
+          if (error) {
+            console.error('Error fetching profile:', error);
+            return;
+          }
           
           if (profile) {
             const user: User = {
@@ -273,6 +255,50 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               isAdmin: profile.is_admin || false
             };
             dispatch({ type: 'SET_USER', payload: user });
+            console.log('User authenticated:', user);
+          }
+        } catch (error) {
+          console.error('Session check error:', error);
+        }
+      }
+    };
+    
+    checkSession();
+    
+    // Setup auth state listener
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        console.log('Auth state changed:', event, session?.user?.email);
+        
+        if (event === 'SIGNED_IN' && session) {
+          try {
+            // Get user profile from database
+            const { data: profile, error } = await supabase
+              .from('profiles')
+              .select('*')
+              .eq('id', session.user.id)
+              .single();
+            
+            if (error) {
+              console.error('Error fetching profile on sign in:', error);
+              return;
+            }
+            
+            if (profile) {
+              const user: User = {
+                id: session.user.id,
+                email: session.user.email || '',
+                name: profile.name || 'User',
+                isAdmin: profile.is_admin || false
+              };
+              dispatch({ type: 'SET_USER', payload: user });
+            } else {
+              // If no profile exists yet, this might be a new auth but profile insert failed
+              console.error('No profile found for user:', session.user.id);
+              dispatch({ type: 'SET_ERROR', payload: 'Profile not found. Please register again.' });
+            }
+          } catch (error) {
+            console.error('Error during auth state change:', error);
           }
         } else if (event === 'SIGNED_OUT') {
           dispatch({ type: 'SET_USER', payload: null });
@@ -297,23 +323,35 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     dispatch({ type: 'SET_ERROR', payload: null });
     
     try {
+      console.log('Attempting login with:', email);
+      
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password
       });
       
       if (error) {
+        console.error('Login error:', error.message);
         dispatch({ type: 'SET_ERROR', payload: error.message });
+        toast.error(error.message);
         return;
       }
       
       if (data.user) {
+        console.log('Login successful for:', data.user.email);
+        
         // Get user profile from database
-        const { data: profile } = await supabase
+        const { data: profile, error: profileError } = await supabase
           .from('profiles')
           .select('*')
           .eq('id', data.user.id)
           .single();
+        
+        if (profileError) {
+          console.error('Profile fetch error:', profileError);
+          dispatch({ type: 'SET_ERROR', payload: 'Error fetching user profile' });
+          return;
+        }
           
         if (profile) {
           const user: User = {
@@ -323,13 +361,19 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             isAdmin: profile.is_admin || false
           };
           dispatch({ type: 'SET_USER', payload: user });
+        } else {
+          console.error('No profile found for user:', data.user.id);
+          dispatch({ type: 'SET_ERROR', payload: 'User profile not found' });
         }
       }
     } catch (error) {
+      console.error('Login exception:', error);
       if (error instanceof Error) {
         dispatch({ type: 'SET_ERROR', payload: error.message });
+        toast.error(error.message);
       } else {
         dispatch({ type: 'SET_ERROR', payload: 'An unknown error occurred' });
+        toast.error('An unknown error occurred during login');
       }
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false });
@@ -343,12 +387,16 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const { error } = await supabase.auth.signOut();
       
       if (error) {
+        console.error('Logout error:', error);
         dispatch({ type: 'SET_ERROR', payload: error.message });
+        toast.error('Error signing out');
         return;
       }
       
       dispatch({ type: 'SET_USER', payload: null });
+      toast.success('Signed out successfully');
     } catch (error) {
+      console.error('Logout exception:', error);
       if (error instanceof Error) {
         dispatch({ type: 'SET_ERROR', payload: error.message });
       }
@@ -362,23 +410,24 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     dispatch({ type: 'SET_ERROR', payload: null });
     
     try {
+      console.log('Creating account for:', email);
+      
       // Sign up with Supabase Auth
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
-        options: {
-          data: {
-            name
-          }
-        }
       });
       
       if (error) {
+        console.error('Registration error:', error);
         dispatch({ type: 'SET_ERROR', payload: error.message });
+        toast.error(error.message);
         return;
       }
       
       if (data.user) {
+        console.log('Auth created for:', data.user.email);
+        
         // Create profile in database
         const { error: profileError } = await supabase
           .from('profiles')
@@ -386,14 +435,18 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             id: data.user.id,
             name: name,
             email: email,
-            is_admin: false,
+            is_admin: false, // Default to regular user
             created_at: new Date().toISOString()
           });
           
         if (profileError) {
+          console.error('Profile creation error:', profileError);
           dispatch({ type: 'SET_ERROR', payload: profileError.message });
+          toast.error('Error creating user profile');
           return;
         }
+        
+        console.log('Profile created for:', email);
         
         const user: User = {
           id: data.user.id,
@@ -403,12 +456,19 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         };
         
         dispatch({ type: 'SET_USER', payload: user });
+        toast.success('Account created successfully!');
+      } else {
+        console.error('No user returned after signup');
+        toast.error('Registration failed');
       }
     } catch (error) {
+      console.error('Registration exception:', error);
       if (error instanceof Error) {
         dispatch({ type: 'SET_ERROR', payload: error.message });
+        toast.error(error.message);
       } else {
         dispatch({ type: 'SET_ERROR', payload: 'An unknown error occurred' });
+        toast.error('An unknown error occurred during registration');
       }
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false });

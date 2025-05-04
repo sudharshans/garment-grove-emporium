@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useStore } from '@/contexts/StoreContext';
@@ -17,10 +16,29 @@ export const LoginPage = () => {
   
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    await login(email, password);
+    try {
+      await login(email, password);
+      if (!state.error) {
+        toast.success('Login successful!');
+      }
+    } catch (error) {
+      console.error('Login error:', error);
+    }
+  };
+  
+  const handleDemoLogin = async (userType: 'admin' | 'user') => {
+    const demoEmail = userType === 'admin' ? 'admin@example.com' : 'user@example.com';
+    const demoPassword = 'password123'; // Simple demo password
     
-    if (!state.error) {
-      toast.success('Login successful!');
+    setEmail(demoEmail);
+    setPassword(demoPassword);
+    
+    try {
+      await login(demoEmail, demoPassword);
+      toast.success(`Demo ${userType} login successful!`);
+    } catch (error) {
+      console.error('Demo login error:', error);
+      toast.error('Demo login failed. Please ensure demo accounts are set up in Supabase.');
     }
   };
   
@@ -99,12 +117,27 @@ export const LoginPage = () => {
             </p>
           </div>
           
-          {/* Admin account creation instructions */}
+          {/* Quick Demo Login */}
           <div className="mt-8 p-4 bg-blue-50 rounded-md">
-            <h3 className="text-sm font-semibold text-blue-800 mb-2">First Time Setup</h3>
-            <p className="text-xs text-gray-600">
-              To create an admin account, register normally then use the Supabase dashboard to set the is_admin field to true in the profiles table.
-            </p>
+            <h3 className="text-sm font-semibold text-blue-800 mb-2">Quick Demo Login</h3>
+            <div className="flex space-x-2">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="flex-1"
+                onClick={() => handleDemoLogin('admin')}
+              >
+                Login as Admin
+              </Button>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="flex-1"
+                onClick={() => handleDemoLogin('user')}
+              >
+                Login as Customer
+              </Button>
+            </div>
           </div>
         </div>
       </div>
