@@ -15,35 +15,12 @@ export const LoginPage = () => {
   const { state, login } = useStore();
   const navigate = useNavigate();
   
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    login(email, password);
+    await login(email, password);
     
-    // Show a success message when login succeeds
     if (!state.error) {
-      const isAdmin = email === 'admin@example.com';
-      toast.success(`Login successful! ${isAdmin ? 'Welcome, Admin' : 'Welcome back'}`);
-      
-      // Redirect admin users to admin page
-      if (isAdmin) {
-        setTimeout(() => navigate('/admin'), 500);
-      }
-    }
-  };
-  
-  // Quick login buttons for demo
-  const handleQuickLogin = (userType: 'admin' | 'user') => {
-    const email = userType === 'admin' ? 'admin@example.com' : 'user@example.com';
-    setEmail(email);
-    login(email, '');
-    
-    toast.success(`Demo ${userType} login successful!`);
-    
-    // Redirect admin to admin page, user to products
-    if (userType === 'admin') {
-      setTimeout(() => navigate('/admin'), 500);
-    } else {
-      setTimeout(() => navigate('/'), 500);
+      toast.success('Login successful!');
     }
   };
   
@@ -122,28 +99,12 @@ export const LoginPage = () => {
             </p>
           </div>
           
-          {/* Demo account buttons for quick access */}
+          {/* Admin account creation instructions */}
           <div className="mt-8 p-4 bg-blue-50 rounded-md">
-            <h3 className="text-sm font-semibold text-blue-800 mb-2">Quick Demo Login</h3>
-            <div className="grid grid-cols-2 gap-2">
-              <Button 
-                variant="outline" 
-                size="sm"
-                className="bg-blue-100 border-blue-200 hover:bg-blue-200"
-                onClick={() => handleQuickLogin('admin')}
-              >
-                Login as Admin
-              </Button>
-              <Button 
-                variant="outline" 
-                size="sm"
-                className="bg-blue-100 border-blue-200 hover:bg-blue-200"
-                onClick={() => handleQuickLogin('user')}
-              >
-                Login as Customer
-              </Button>
-            </div>
-            <p className="text-xs text-gray-500 mt-2">No password required for demo</p>
+            <h3 className="text-sm font-semibold text-blue-800 mb-2">First Time Setup</h3>
+            <p className="text-xs text-gray-600">
+              To create an admin account, register normally then use the Supabase dashboard to set the is_admin field to true in the profiles table.
+            </p>
           </div>
         </div>
       </div>
@@ -163,7 +124,7 @@ export const RegisterPage = () => {
   const { state, register } = useStore();
   const navigate = useNavigate();
   
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (password !== confirmPassword) {
@@ -172,7 +133,7 @@ export const RegisterPage = () => {
     }
     
     setPasswordError('');
-    register(name, email, password);
+    await register(name, email, password);
     
     if (!state.error) {
       toast.success('Registration successful! Welcome to Garment Grove.');
@@ -180,8 +141,13 @@ export const RegisterPage = () => {
   };
   
   // Redirect if already logged in
+  useEffect(() => {
+    if (state.currentUser) {
+      navigate('/');
+    }
+  }, [state.currentUser, navigate]);
+  
   if (state.currentUser) {
-    navigate('/');
     return null;
   }
   

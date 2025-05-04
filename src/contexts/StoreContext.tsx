@@ -1,5 +1,10 @@
-
 import React, { createContext, useContext, useReducer, useEffect } from 'react';
+import { createClient } from '@supabase/supabase-js';
+
+// Supabase client setup
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+export const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Types
 export type User = {
@@ -110,7 +115,7 @@ const storeReducer = (state: State, action: Action): State => {
   }
 };
 
-// Mock data
+// Mock products data
 const mockProducts: Product[] = [
   {
     id: '1',
@@ -186,28 +191,12 @@ const mockProducts: Product[] = [
   }
 ];
 
-// Sample user data
-const mockUsers: User[] = [
-  {
-    id: '1',
-    name: 'Admin User',
-    email: 'admin@example.com',
-    isAdmin: true,
-  },
-  {
-    id: '2',
-    name: 'Regular User',
-    email: 'user@example.com',
-    isAdmin: false,
-  }
-];
-
 // Context Creation
 type StoreContextType = {
   state: State;
-  login: (email: string, password: string) => void;
-  logout: () => void;
-  register: (name: string, email: string, password: string) => void;
+  login: (email: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
+  register: (name: string, email: string, password: string) => Promise<void>;
   addToCart: (product: Product, quantity: number) => void;
   updateCartItem: (productId: string, quantity: number) => void;
   removeFromCart: (productId: string) => void;
@@ -230,12 +219,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   useEffect(() => {
     dispatch({ type: 'SET_PRODUCTS', payload: mockProducts });
     
-    // Check for stored user in localStorage
-    const storedUser = localStorage.getItem('currentUser');
-    if (storedUser) {
-      dispatch({ type: 'SET_USER', payload: JSON.parse(storedUser) });
-    }
-    
     // Check for stored cart in localStorage
     const storedCart = localStorage.getItem('cart');
     if (storedCart) {
@@ -244,6 +227,63 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         dispatch({ type: 'ADD_TO_CART', payload: item });
       });
     }
+    
+    // Check for current Supabase session
+    const checkSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (session) {
+        // Get user profile from database
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', session.user.id)
+          .single();
+        
+        if (profile) {
+          const user: User = {
+            id: session.user.id,
+            email: session.user.email || '',
+            name: profile.name || 'User',
+            isAdmin: profile.is_admin || false
+          };
+          dispatch({ type: 'SET_USER', payload: user });
+        }
+      }
+    };
+    
+    checkSession();
+    
+    // Setup auth state listener
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (event === 'SIGNED_IN' && session) {
+          // Get user profile from database
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', session.user.id)
+            .single();
+          
+          if (profile) {
+            const user: User = {
+              id: session.user.id,
+              email: session.user.email || '',
+              name: profile.name || 'User',
+              isAdmin: profile.is_admin || false
+            };
+            dispatch({ type: 'SET_USER', payload: user });
+          }
+        } else if (event === 'SIGNED_OUT') {
+          dispatch({ type: 'SET_USER', payload: null });
+        }
+      }
+    );
+    
+    // Cleanup subscription on unmount
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   // Update localStorage when cart changes
@@ -252,56 +292,127 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, [state.cart]);
 
   // Auth functions
-  const login = (email: string, password: string) => {
+  const login = async (email: string, password: string) => {
     dispatch({ type: 'SET_LOADING', payload: true });
+    dispatch({ type: 'SET_ERROR', payload: null });
     
-    // Mock authentication
-    setTimeout(() => {
-      const user = mockUsers.find(u => u.email === email);
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      });
       
-      if (user) {
-        // In a real app, you would verify the password here
-        dispatch({ type: 'SET_USER', payload: user });
-        localStorage.setItem('currentUser', JSON.stringify(user));
-        dispatch({ type: 'SET_ERROR', payload: null });
-      } else {
-        dispatch({ type: 'SET_ERROR', payload: 'Invalid email or password' });
+      if (error) {
+        dispatch({ type: 'SET_ERROR', payload: error.message });
+        return;
       }
       
+      if (data.user) {
+        // Get user profile from database
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', data.user.id)
+          .single();
+          
+        if (profile) {
+          const user: User = {
+            id: data.user.id,
+            email: data.user.email || '',
+            name: profile.name || 'User',
+            isAdmin: profile.is_admin || false
+          };
+          dispatch({ type: 'SET_USER', payload: user });
+        }
+      }
+    } catch (error) {
+      if (error instanceof Error) {
+        dispatch({ type: 'SET_ERROR', payload: error.message });
+      } else {
+        dispatch({ type: 'SET_ERROR', payload: 'An unknown error occurred' });
+      }
+    } finally {
       dispatch({ type: 'SET_LOADING', payload: false });
-    }, 1000);
+    }
   };
 
-  const logout = () => {
-    dispatch({ type: 'SET_USER', payload: null });
-    localStorage.removeItem('currentUser');
-  };
-
-  const register = (name: string, email: string, password: string) => {
+  const logout = async () => {
     dispatch({ type: 'SET_LOADING', payload: true });
     
-    // Mock registration
-    setTimeout(() => {
-      const existingUser = mockUsers.find(u => u.email === email);
+    try {
+      const { error } = await supabase.auth.signOut();
       
-      if (existingUser) {
-        dispatch({ type: 'SET_ERROR', payload: 'Email already in use' });
-      } else {
-        const newUser: User = {
-          id: String(mockUsers.length + 1),
-          name,
-          email,
+      if (error) {
+        dispatch({ type: 'SET_ERROR', payload: error.message });
+        return;
+      }
+      
+      dispatch({ type: 'SET_USER', payload: null });
+    } catch (error) {
+      if (error instanceof Error) {
+        dispatch({ type: 'SET_ERROR', payload: error.message });
+      }
+    } finally {
+      dispatch({ type: 'SET_LOADING', payload: false });
+    }
+  };
+
+  const register = async (name: string, email: string, password: string) => {
+    dispatch({ type: 'SET_LOADING', payload: true });
+    dispatch({ type: 'SET_ERROR', payload: null });
+    
+    try {
+      // Sign up with Supabase Auth
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            name
+          }
+        }
+      });
+      
+      if (error) {
+        dispatch({ type: 'SET_ERROR', payload: error.message });
+        return;
+      }
+      
+      if (data.user) {
+        // Create profile in database
+        const { error: profileError } = await supabase
+          .from('profiles')
+          .insert({
+            id: data.user.id,
+            name: name,
+            email: email,
+            is_admin: false,
+            created_at: new Date().toISOString()
+          });
+          
+        if (profileError) {
+          dispatch({ type: 'SET_ERROR', payload: profileError.message });
+          return;
+        }
+        
+        const user: User = {
+          id: data.user.id,
+          email: email,
+          name: name,
           isAdmin: false
         };
         
-        mockUsers.push(newUser);
-        dispatch({ type: 'SET_USER', payload: newUser });
-        localStorage.setItem('currentUser', JSON.stringify(newUser));
-        dispatch({ type: 'SET_ERROR', payload: null });
+        dispatch({ type: 'SET_USER', payload: user });
       }
-      
+    } catch (error) {
+      if (error instanceof Error) {
+        dispatch({ type: 'SET_ERROR', payload: error.message });
+      } else {
+        dispatch({ type: 'SET_ERROR', payload: 'An unknown error occurred' });
+      }
+    } finally {
       dispatch({ type: 'SET_LOADING', payload: false });
-    }, 1000);
+    }
   };
 
   // Cart functions
