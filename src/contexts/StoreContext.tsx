@@ -1,16 +1,6 @@
 import React, { createContext, useContext, useReducer, useEffect } from 'react';
-import { createClient } from '@supabase/supabase-js';
 import { toast } from 'sonner';
-
-// Supabase client setup with fallback values
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
-const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
-
-// Check if Supabase configuration is available
-const isSuabaseConfigured = supabaseUrl && supabaseKey;
-export const supabase = isSuabaseConfigured 
-  ? createClient(supabaseUrl, supabaseKey)
-  : null;
+import { supabase } from '@/integrations/supabase/client';
 
 // Types
 export type User = {
@@ -234,13 +224,48 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       });
     }
     
-    // Only attempt Supabase operations if configured
-    if (isSuabaseConfigured && supabase) {
-      // Check for current Supabase session
-      const checkSession = async () => {
+    // Check for current Supabase session
+    const checkSession = async () => {
+      try {
         const { data: { session } } = await supabase.auth.getSession();
         
         if (session) {
+          // Get user profile from database
+          const { data: profile, error } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', session.user.id)
+            .single();
+          
+          if (error) {
+            console.error('Error fetching profile:', error);
+            return;
+          }
+          
+          if (profile) {
+            const user: User = {
+              id: session.user.id,
+              email: session.user.email || '',
+              name: profile.name || 'User',
+              isAdmin: profile.is_admin || false
+            };
+            dispatch({ type: 'SET_USER', payload: user });
+            console.log('User authenticated:', user);
+          }
+        }
+      } catch (error) {
+        console.error('Session check error:', error);
+      }
+    };
+    
+    checkSession();
+    
+    // Setup auth state listener
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        console.log('Auth state changed:', event, session?.user?.email);
+        
+        if (event === 'SIGNED_IN' && session) {
           try {
             // Get user profile from database
             const { data: profile, error } = await supabase
@@ -250,7 +275,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               .single();
             
             if (error) {
-              console.error('Error fetching profile:', error);
+              console.error('Error fetching profile on sign in:', error);
               return;
             }
             
@@ -262,66 +287,23 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 isAdmin: profile.is_admin || false
               };
               dispatch({ type: 'SET_USER', payload: user });
-              console.log('User authenticated:', user);
+            } else {
+              console.error('No profile found for user:', session.user.id);
+              dispatch({ type: 'SET_ERROR', payload: 'Profile not found. Please register again.' });
             }
           } catch (error) {
-            console.error('Session check error:', error);
+            console.error('Error during auth state change:', error);
           }
+        } else if (event === 'SIGNED_OUT') {
+          dispatch({ type: 'SET_USER', payload: null });
         }
-      };
-      
-      checkSession();
-      
-      // Setup auth state listener
-      const { data: { subscription } } = supabase.auth.onAuthStateChange(
-        async (event, session) => {
-          console.log('Auth state changed:', event, session?.user?.email);
-          
-          if (event === 'SIGNED_IN' && session) {
-            try {
-              // Get user profile from database
-              const { data: profile, error } = await supabase
-                .from('profiles')
-                .select('*')
-                .eq('id', session.user.id)
-                .single();
-              
-              if (error) {
-                console.error('Error fetching profile on sign in:', error);
-                return;
-              }
-              
-              if (profile) {
-                const user: User = {
-                  id: session.user.id,
-                  email: session.user.email || '',
-                  name: profile.name || 'User',
-                  isAdmin: profile.is_admin || false
-                };
-                dispatch({ type: 'SET_USER', payload: user });
-              } else {
-                // If no profile exists yet, this might be a new auth but profile insert failed
-                console.error('No profile found for user:', session.user.id);
-                dispatch({ type: 'SET_ERROR', payload: 'Profile not found. Please register again.' });
-              }
-            } catch (error) {
-              console.error('Error during auth state change:', error);
-            }
-          } else if (event === 'SIGNED_OUT') {
-            dispatch({ type: 'SET_USER', payload: null });
-          }
-        }
-      );
-      
-      // Cleanup subscription on unmount
-      return () => {
-        subscription.unsubscribe();
-      };
-    } else {
-      // If Supabase is not configured, show a message
-      console.warn('Supabase URL or API key is missing. Authentication features will not work.');
-      toast.error('Authentication is not configured. Please set up Supabase environment variables.');
-    }
+      }
+    );
+    
+    // Cleanup subscription on unmount
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   // Update localStorage when cart changes
@@ -333,13 +315,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const login = async (email: string, password: string) => {
     dispatch({ type: 'SET_LOADING', payload: true });
     dispatch({ type: 'SET_ERROR', payload: null });
-    
-    if (!isSuabaseConfigured || !supabase) {
-      dispatch({ type: 'SET_ERROR', payload: 'Authentication is not configured' });
-      toast.error('Authentication is not configured. Please set up Supabase environment variables.');
-      dispatch({ type: 'SET_LOADING', payload: false });
-      return;
-    }
     
     try {
       console.log('Attempting login with:', email);
@@ -402,13 +377,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const logout = async () => {
     dispatch({ type: 'SET_LOADING', payload: true });
     
-    if (!isSuabaseConfigured || !supabase) {
-      dispatch({ type: 'SET_ERROR', payload: 'Authentication is not configured' });
-      toast.error('Authentication is not configured');
-      dispatch({ type: 'SET_LOADING', payload: false });
-      return;
-    }
-    
     try {
       const { error } = await supabase.auth.signOut();
       
@@ -434,13 +402,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const register = async (name: string, email: string, password: string) => {
     dispatch({ type: 'SET_LOADING', payload: true });
     dispatch({ type: 'SET_ERROR', payload: null });
-    
-    if (!isSuabaseConfigured || !supabase) {
-      dispatch({ type: 'SET_ERROR', payload: 'Authentication is not configured' });
-      toast.error('Authentication is not configured. Please set up Supabase environment variables.');
-      dispatch({ type: 'SET_LOADING', payload: false });
-      return;
-    }
     
     try {
       console.log('Creating account for:', email);
